@@ -38,12 +38,6 @@ pub fn main(args: Vec<String>) -> i32 {
     let args = arg_parser.get_matches_from(args);
 
     logger::init().unwrap();
-    let verbosity = args.get_one::<String>("verbosity").unwrap().as_str() == "debug";
-    set_max_level(if verbosity {
-        LevelFilter::Debug
-    } else {
-        LevelFilter::Info
-    });
 
     let root_path = args.get_one::<String>("repo-root").unwrap();
     if root_path != &String::from(".") {
@@ -61,6 +55,12 @@ pub fn main(args: Vec<String>) -> i32 {
     };
 
     let rest_api_client = GithubApiClient::new();
+    let verbosity = args.get_one::<String>("verbosity").unwrap().as_str() == "debug";
+    set_max_level(if verbosity || rest_api_client.debug_enabled {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Info
+    });
     log::info!("Processing event {}", rest_api_client.event_name);
 
     let extensions = args

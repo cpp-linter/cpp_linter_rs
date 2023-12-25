@@ -38,6 +38,9 @@ pub struct GithubApiClient {
 
     /// The value of the `GITHUB_SHA` environment variable.
     sha: Option<String>,
+
+    /// The value of the `ACTIONS_STEP_DEBUG` environment variable.
+    pub debug_enabled: bool,
 }
 
 impl Default for GithubApiClient {
@@ -77,9 +80,15 @@ impl GithubApiClient {
             } else {
                 None
             },
+            debug_enabled: match env::var("ACTIONS_STEP_DEBUG") {
+                Ok(val) => val == "true",
+                Err(_) => false,
+            },
         }
     }
 }
+
+// implement the RestApiClient trait for the GithubApiClient
 impl RestApiClient for GithubApiClient {
     fn set_exit_code(
         &self,

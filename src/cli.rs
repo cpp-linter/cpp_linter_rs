@@ -13,7 +13,7 @@ pub fn get_arg_parser() -> Command {
             Arg::new("verbosity")
                 .long("verbosity")
                 .short('v')
-                .default_value("debug")
+                .default_value("info")
                 .value_parser(["debug", "info"])
                 .long_help(
                     "This controls the action's verbosity in the workflow's logs.
