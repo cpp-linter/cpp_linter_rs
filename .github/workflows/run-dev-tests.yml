@@ -1,0 +1,115 @@
+name: "Check python code"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.rs"
+      - "*.toml"
+      - ".github/workflows/run-dev-tests.yml"
+  pull_request:
+    # types: opened
+    branches: [main]
+    paths:
+      - "**.rs"
+      - "*.toml"
+      - ".github/workflows/run-dev-tests.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['windows-latest', ubuntu-latest]
+        version: ['17', '16', '15', '14', '13', '12', '11', '10', '9', '8', '7']
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup component add llvm-tools-preview
+
+      - name: Install cargo-nextest and cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+
+      - name: Restore build artifacts
+        uses: actions/cache/restore@v3
+        with:
+          key: ${{ runner.os }}-${{ github.run_id }}_test_builds
+          path: nextest-archive.tar.zst
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      # - name: Install workflow deps
+      #   run: python3 -m pip install meson
+
+      # # https://github.com/ninja-build/ninja/wiki/Pre-built-Ninja-packages
+      # - name: Install ninja (Linux)
+      #   if: runner.os == 'Linux'
+      #   run: sudo apt-get install ninja-build
+      # - name: Install ninja (Windows)
+      #   if: runner.os == 'Windows'
+      #   run: choco install ninja
+
+      - name: Install Linux clang dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          # First try installing from default Ubuntu repositories before trying LLVM script
+          if ! sudo apt-get install -y clang-format-${{ matrix.version }} clang-tidy-${{ matrix.version }}; then
+            # This LLVM script will add the relevant LLVM PPA: https://apt.llvm.org/
+            wget https://apt.llvm.org/llvm.sh -O ${{ runner.temp }}/llvm_install.sh
+            chmod +x ${{ runner.temp }}/llvm_install.sh
+            if sudo ${{ runner.temp }}/llvm_install.sh ${{ matrix.version }}; then
+              sudo apt-get install -y clang-format-${{ matrix.version }} clang-tidy-${{ matrix.version }}
+            fi
+          fi
+
+      - name: Install clang-tools
+        run: |
+          python -m pip install clang-tools
+          clang-tools --install ${{ matrix.version }}
+
+      - name: Collect Coverage
+        env:
+          CLANG_VERSION: ${{ matrix.version }}
+        run: cargo llvm-cov --no-report nextest
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-${{ runner.os }}-${{ matrix.version }}
+          path: target/llvm-cov-target
+
+  coverage-report:
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ github.workspace }}
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Create coverage report
+        run: cargo llvm-cov report --codecov --output-path coverage.json
+
+      - uses: codecov/codecov-action@v3
+        with:
+          token: ${{secrets.CODECOV_TOKEN}}
+          files: coverage.json
+          fail_ci_if_error: true # optional (default = false)
