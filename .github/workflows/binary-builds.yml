@@ -34,8 +34,11 @@ jobs:
         include:
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
+          ## I GIVE UP! For this target, OpenSSL needs to be cross compiled
+          ## which is driven by openssl-sys crate's custom build script...
+          ## Linux users with aarch64 (aka ARM64) using musl C lib can go fish (or build from source).
+          # - target: aarch64-unknown-linux-musl
+          #   os: ubuntu-latest
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
           - target: x86_64-unknown-linux-musl
@@ -66,12 +69,12 @@ jobs:
       - name: Install GCC for aarch64 (for cross-compiling openssl)
         if: runner.os == 'Linux' && startsWith(matrix.target, 'aarch64')
         run: |
+          sudo apt-get update
+          sudo apt-get install gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
           if [[ "${{matrix.target}}" == *musl ]]; then
             sudo apt-get install musl-dev musl-tools
-          else
-            sudo apt-get install gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
           fi
-      - name: Install musl-gcc (fom compiling OpenSSL)
+      - name: Install musl-gcc (for compiling OpenSSL)
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get install musl-tools
 
@@ -96,7 +99,18 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
+        # problems with cross-compiling linux with musl
+      - run: echo "RUSTFLAGS=-D warnings -C target-feature=+crt-static -C link-self-contained=yes" >> "${GITHUB_ENV}"
+        if: contains(matrix.target, '-linux-musl')
+      - run: |
+          echo "CC=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+
       - name: Build
+        env:
+          # problems with cross-compiling aarch64 linux with gnu
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: /usr/bin/aarch64-linux-gnu-gcc
         run: cargo build --manifest-path cpp-linter-cli/Cargo.toml --release --bin cpp-linter-cli --target ${{ matrix.target }} ${{ steps.is-openssl-vendored.outputs.enabled }}
 
       - name: Prepare artifacts [Windows]
@@ -160,7 +174,8 @@ jobs:
       matrix:
         target:
           - aarch64-unknown-linux-gnu
-          - aarch64-unknown-linux-musl
+          # skip this target due to cross-compiling OpenSSL for musl C lib
+          # - aarch64-unknown-linux-musl
           - x86_64-unknown-linux-gnu
           - x86_64-unknown-linux-musl
           - aarch64-apple-darwin

@@ -48,6 +48,9 @@ jobs:
         with:
           tool: cargo-nextest,cargo-llvm-cov,cargo-binstall
 
+      - name: Install llvm-cov-pretty (HTL report generator)
+        run: cargo binstall -y llvm-cov-pretty
+
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
@@ -83,36 +86,37 @@ jobs:
           python -m pip install clang-tools
           clang-tools --install ${{ matrix.version }}
 
-      - name: Collect Coverage (for codecov.io)
+      - name: Collect Coverage
+        working-directory: cpp-linter-lib
+        env:
+          CLANG_VERSION: ${{ matrix.version }}
+        run: cargo llvm-cov --hide-instantiations --lib --no-report nextest
+
+      - name: Generate Coverage HTML report
+        working-directory: cpp-linter-lib
+        env:
+          CLANG_VERSION: ${{ matrix.version }}
+        run: |
+          cargo llvm-cov report --json --output-path .coverage.json
+          llvm-cov-pretty .coverage.json
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: HTML_report-${{ runner.os }}-clang_v${{ matrix.version }}
+          path: target/llvm-cov-pretty
+
+      - name: Generate Coverage lcov report
         if: matrix.version == '16' && runner.os == 'Linux'
         working-directory: cpp-linter-lib
         env:
           CLANG_VERSION: ${{ matrix.version }}
-        run: cargo llvm-cov --hide-instantiations --lib --codecov --output-path .coverage.json nextest
+        run: |
+          cargo llvm-cov report --lcov --output-path lcov.info
 
       - uses: codecov/codecov-action@v3
         if: matrix.version == '16' && runner.os == 'Linux'
         with:
           token: ${{secrets.CODECOV_TOKEN}}
-          files: cpp-linter-lib/.coverage.json
+          files: cpp-linter-lib/lcov.info
           fail_ci_if_error: true # optional (default = false)
-
-      - name: Install llvm-cov-pretty (HTL report generator)
-        if: matrix.version != '16' && runner.os != 'Linux'
-        run: cargo binstall -y llvm-cov-pretty
-
-      - name: Collect Coverage (for HTML report)
-        if: matrix.version != '16' && runner.os != 'Linux'
-        working-directory: cpp-linter-lib
-        env:
-          CLANG_VERSION: ${{ matrix.version }}
-        run: |
-          cargo llvm-cov --hide-instantiations --lib --json --output-path .coverage.json nextest
-          llvm-cov-pretty .coverage.json
-
-      - name: Upload coverage data
-        uses: actions/upload-artifact@v4
-        if: matrix.version != '16' && runner.os != 'Linux'
-        with:
-          name: HTML_report-${{ runner.os }}-clang_v${{ matrix.version }}
-          path: target/llvm-cov-pretty
