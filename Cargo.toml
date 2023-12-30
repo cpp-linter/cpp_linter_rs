@@ -9,7 +9,7 @@ name = "cpp_linter"
 crate-type = ["lib", "cdylib"]
 
 [[bin]]
-name = "cpp-linter"
+name = "cpp-linter-cli"
 path = "src/bin.rs"
 
 [dependencies]
@@ -17,6 +17,8 @@ clap = { version = ">=4.4.2" }
 git2 = ">=0.18.1"
 lenient_semver = "0.4.2"
 log = ">=0.4.20"
+openssl = { version = "0.10", features = ["vendored"], optional = true }
+openssl-probe = { version = "0.1", optional = true }
 pyo3 = { version = ">=0.19.2", features = ["extension-module"] }
 regex = "1.10.2"
 reqwest = { version = "0.11", features = ["blocking", "json"] }
@@ -28,6 +30,9 @@ which = "5.0.0"
 
 [dev-dependencies]
 tempfile = "3.8.1"
+
+[features]
+openssl-vendored = ["dep:openssl", "dep:openssl-probe"]
 
 [package.metadata.scripts]
 run = "cargo run"

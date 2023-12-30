@@ -6,6 +6,7 @@ use std::{fs, io};
 use std::{ops::RangeInclusive, path::PathBuf};
 
 /// A structure to represent a file's path and line changes.
+#[derive(Debug)]
 pub struct FileObj {
     /// The path to the file.
     pub name: PathBuf,

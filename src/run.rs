@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 // non-std crates
 use log::{set_max_level, LevelFilter};
+#[cfg(features = "openssl-vendored")]
+use openssl_probe;
 use pyo3::prelude::*;
 
 // project specific modules/crates
@@ -17,6 +19,14 @@ use crate::common_fs::{list_source_files, FileObj};
 use crate::github_api::GithubApiClient;
 use crate::logger::{self, end_log_group, start_log_group};
 use crate::rest_api::RestApiClient;
+
+#[cfg(features = "openssl-vendored")]
+fn probe_ssl_certs() {
+    openssl_probe::init_ssl_cert_env_vars();
+}
+
+#[cfg(not(openssl_probe))]
+fn probe_ssl_certs() {}
 
 /// This is the backend entry point for console applications.
 ///
@@ -34,6 +44,8 @@ use crate::rest_api::RestApiClient;
 /// because it is not configured to handle positional arguments.
 #[pyfunction]
 pub fn main(args: Vec<String>) -> i32 {
+    probe_ssl_certs();
+
     let arg_parser = get_arg_parser();
     let args = arg_parser.get_matches_from(args);
 

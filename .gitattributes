@@ -8,3 +8,4 @@
 *.sh text eol=lf
 *.cpp text eol=lf
 *.hpp text eol=lf
+*.patch text eol=lf
