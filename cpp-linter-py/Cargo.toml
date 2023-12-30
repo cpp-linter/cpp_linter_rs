@@ -1,0 +1,19 @@
+[package]
+name = "cpp-linter-py"
+edition = "2021"
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "cpp_linter"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.20.0", features = ["extension-module"] }
+cpp-linter-lib = { path = "../cpp-linter-lib", version = "*" }
+
+[features]
+openssl-vendored = ["cpp-linter-lib/openssl-vendored"]

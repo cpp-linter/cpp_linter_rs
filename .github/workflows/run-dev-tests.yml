@@ -1,0 +1,118 @@
+name: "Check rust code"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.rs"
+      - "*.toml"
+      - ".github/workflows/run-dev-tests.yml"
+  pull_request:
+    # types: opened
+    branches: [main]
+    paths:
+      - "**.rs"
+      - "*.toml"
+      - ".github/workflows/run-dev-tests.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['windows-latest', ubuntu-latest]
+        version: ['17', '16', '15', '14', '13', '12', '11', '10', '9', '8', '7']
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup component add llvm-tools-preview
+
+      # https://docs.rs/openssl/latest/openssl/#automatic
+      - name: Install OpenSSL (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y pkg-config libssl-dev
+      - name: Install OpenSSL (MacOS)
+        if: runner.os == 'macOS'
+        run: brew install openssl@3
+      # - name: Install OpenSSL (Windows)
+      #   if: runner.os == 'Windows'
+      #   run: vcpkg install openssl
+
+      - name: Install cargo-nextest and cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-llvm-cov,cargo-binstall
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      # - name: Install workflow deps
+      #   run: python3 -m pip install meson
+
+      # # https://github.com/ninja-build/ninja/wiki/Pre-built-Ninja-packages
+      # - name: Install ninja (Linux)
+      #   if: runner.os == 'Linux'
+      #   run: sudo apt-get install ninja-build
+      # - name: Install ninja (Windows)
+      #   if: runner.os == 'Windows'
+      #   run: choco install ninja
+
+      - name: Install Linux clang dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          # First try installing from default Ubuntu repositories before trying LLVM script
+          if ! sudo apt-get install -y clang-format-${{ matrix.version }} clang-tidy-${{ matrix.version }}; then
+            # This LLVM script will add the relevant LLVM PPA: https://apt.llvm.org/
+            wget https://apt.llvm.org/llvm.sh -O ${{ runner.temp }}/llvm_install.sh
+            chmod +x ${{ runner.temp }}/llvm_install.sh
+            if sudo ${{ runner.temp }}/llvm_install.sh ${{ matrix.version }}; then
+              sudo apt-get install -y clang-format-${{ matrix.version }} clang-tidy-${{ matrix.version }}
+            fi
+          fi
+
+      - name: Install clang-tools
+        run: |
+          python -m pip install clang-tools
+          clang-tools --install ${{ matrix.version }}
+
+      - name: Collect Coverage (for codecov.io)
+        if: matrix.version == '16' && runner.os == 'Linux'
+        working-directory: cpp-linter-lib
+        env:
+          CLANG_VERSION: ${{ matrix.version }}
+        run: cargo llvm-cov --hide-instantiations --lib --codecov --output-path .coverage.json nextest
+
+      - uses: codecov/codecov-action@v3
+        if: matrix.version == '16' && runner.os == 'Linux'
+        with:
+          token: ${{secrets.CODECOV_TOKEN}}
+          files: cpp-linter-lib/.coverage.json
+          fail_ci_if_error: true # optional (default = false)
+
+      - name: Install llvm-cov-pretty (HTL report generator)
+        if: matrix.version != '16' && runner.os != 'Linux'
+        run: cargo binstall -y llvm-cov-pretty
+
+      - name: Collect Coverage (for HTML report)
+        if: matrix.version != '16' && runner.os != 'Linux'
+        working-directory: cpp-linter-lib
+        env:
+          CLANG_VERSION: ${{ matrix.version }}
+        run: |
+          cargo llvm-cov --hide-instantiations --lib --json --output-path .coverage.json nextest
+          llvm-cov-pretty .coverage.json
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        if: matrix.version != '16' && runner.os != 'Linux'
+        with:
+          name: HTML_report-${{ runner.os }}-clang_v${{ matrix.version }}
+          path: target/llvm-cov-pretty

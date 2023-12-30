@@ -1,0 +1,16 @@
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[workspace]
+members = ["cpp-linter-lib", "cpp-linter-cli", "cpp-linter-py"]
+resolver = "2"
+
+[workspace.package]
+version = "2.0.0"
+authors = [
+    "Brendan Doherty",
+    "Peter Shen",
+]
+description = "Run clang-format and clang-tidy on a batch of files."
+documentation = "https://example.com/bar"
+
+[workspace.dependencies]
