@@ -69,7 +69,7 @@ jobs:
           if [[ "${{matrix.target}}" == *musl ]]; then
             sudo apt-get install musl-dev musl-tools
           else
-            sudo apt-get install gcc-11-aarch64-linux-gnu binutils-aarch64-linux-gnu
+            sudo apt-get install gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
           fi
       - name: Install musl-gcc (fom compiling OpenSSL)
         if: matrix.target == 'x86_64-unknown-linux-musl'
@@ -98,10 +98,10 @@ jobs:
 
       - name: Build (openssl-vendored)
         if: steps.is-openssl-vendored.outputs.enabled == 'true'
-        run: cargo build --release --target ${{ matrix.target }} --features openssl-vendored
+        run: cargo build --release --bin cpp-linter-cli --target ${{ matrix.target }} --features openssl-vendored
       - name: Build (no openssl-vendored)
         if: steps.is-openssl-vendored.outputs.enabled == 'false'
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --bin cpp-linter-cli  --target ${{ matrix.target }}
 
       - name: Prepare artifacts [Windows]
         shell: bash
