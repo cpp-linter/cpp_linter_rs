@@ -1,0 +1,35 @@
+name: Docs
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      - name: Install docs dependencies
+        working-directory: cpp-linter-py
+        run: pip install -r docs/requirements.txt
+
+      - name: Build docs
+        working-directory: cpp-linter-py
+        run: sphinx-build docs docs/_build/html
+
+      - name: upload docs build as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "cpp-linter-py-docs"
+          path: cpp-linter-py/docs/_build/html
+
+      - name: upload to github pages
+        # only publish doc changes from main branch
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: cpp-linter-py/docs/_build/html

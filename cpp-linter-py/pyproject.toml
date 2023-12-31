@@ -1,0 +1,43 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "cpp-linter"
+description = "Run clang-format and clang-tidy on a batch of files."
+readme = "README.md"
+keywords = ["clang", "clang-tools", "linter", "clang-tidy", "clang-format"]
+license = {text = "MIT License"}
+requires-python = ">=3.7"
+authors = [
+    { name = "Brendan Doherty", email = "2bndy5@gmail.com" },
+    { name = "Peter Shen", email = "xianpeng.shen@gmail.com" },
+]
+classifiers = [
+    # https://pypi.org/pypi?%3Aaction=list_classifiers
+    "Development Status :: 5 - Production/Stable",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Information Technology",
+    "Natural Language :: English",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Build Tools",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dynamic = ["version"]
+
+[project.scripts]
+cpp-linter = "cpp_linter.entry_point:main"
+
+[project.urls]
+source =  "https://github.com/cpp-linter/cpp-linter"
+tracker = "https://github.com/cpp-linter/cpp-linter/issues"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
