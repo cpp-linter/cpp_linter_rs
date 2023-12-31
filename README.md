@@ -2,11 +2,18 @@
 
 A Python and Rust package for linting C/C++ code with clang-tidy and/or clang-format to collect feedback provided in the form of thread comments, step summary, or file annotations.
 
+> [!CAUTION]
+> [![codecov](https://codecov.io/gh/cpp-linter/cpp_linter_rs/graph/badge.svg?token=7ibzERx2AD)](https://codecov.io/gh/cpp-linter/cpp_linter_rs)
+>
+> This project is still experimental and subject to drastic changes.
+> Please use the pure python [cpp-linter](https://github.com/cpp-linter/cpp-linter)
+> package until this project is ready for deployment.
+
 ## Usage
 
 For usage in a CI workflow, see [the cpp-linter/cpp-linter-action repository](https://github.com/cpp-linter/cpp-linter-action).
 
-For the description of supported Command Line Interface options, see [the CLI documentation](https://cpp-linter.github.io/cpp-linter/cli_args.html).
+For the description of supported Command Line Interface options, see [the CLI documentation](https://cpp-linter.github.io/cpp_linter_rs/cli_args.html).
 
 ## Have question or feedback?
 

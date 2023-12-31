@@ -4,6 +4,8 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
