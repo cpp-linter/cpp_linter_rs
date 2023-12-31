@@ -111,6 +111,15 @@ impl RestApiClient for GithubApiClient {
                 panic!("Could not write to GITHUB_OUTPUT file: {}", e);
             }
         }
+        log::info!(
+            "{} clang-format-checks-failed",
+            format_checks_failed.unwrap_or(0)
+        );
+        log::info!(
+            "{} clang-tidy-checks-failed",
+            tidy_checks_failed.unwrap_or(0)
+        );
+        log::info!("{checks_failed} checks-failed");
         checks_failed
     }
 

@@ -3,7 +3,6 @@
 
 use std::{
     env::{consts::OS, current_dir},
-    fs,
     path::PathBuf,
     process::Command,
 };
@@ -179,12 +178,6 @@ pub fn run_clang_tidy(
     extra_args: &Option<Vec<&str>>,
     database_json: &Option<CompilationDatabase>,
 ) -> Vec<TidyNotification> {
-    let tidy_yml_output_cache = PathBuf::from(".cpp_linter_cache/clang_tidy_output.yml");
-    if !tidy_yml_output_cache.parent().unwrap().exists() {
-        fs::create_dir_all(tidy_yml_output_cache.parent().unwrap()).unwrap();
-    }
-    fs::write(&tidy_yml_output_cache, b"").unwrap();
-    cmd.args(["--export-fixes", &tidy_yml_output_cache.to_string_lossy()]);
     if !checks.is_empty() {
         cmd.args(["-checks", checks]);
     }

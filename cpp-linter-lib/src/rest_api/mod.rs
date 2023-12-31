@@ -109,12 +109,6 @@ pub trait RestApiClient {
             comment.push_str(":heavy_check_mark:\nNo problems need attention.");
         }
         comment.push_str("\n\nHave any feedback or feature suggestions? [Share it here.](https://github.com/cpp-linter/cpp-linter-action/issues)");
-        log::info!("{format_checks_failed} clang-format-checks-failed");
-        log::info!("{tidy_checks_failed} clang-tidy-checks-failed");
-        log::info!(
-            "{} checks-failed",
-            format_checks_failed + tidy_checks_failed
-        );
         (comment, format_checks_failed, tidy_checks_failed)
     }
 

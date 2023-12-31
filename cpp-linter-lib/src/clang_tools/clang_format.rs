@@ -83,6 +83,11 @@ pub fn run_clang_format(
     //     "clang-format XML output:\n{}",
     //     String::from_utf8(output.stdout.clone()).unwrap()
     // );
+    if output.stdout.is_empty() {
+        return FormatAdvice {
+            replacements: vec![],
+        };
+    }
     let xml = String::from_utf8(output.stdout)
         .unwrap()
         .lines()
