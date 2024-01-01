@@ -79,6 +79,7 @@ fn parse_tidy_output(
     let note_header = Regex::new(r"^(.+):(\d+):(\d+):\s(\w+):(.*)\[([a-zA-Z\d\-\.]+)\]$").unwrap();
     let mut notification = None;
     let mut result = Vec::new();
+    let cur_dir = current_dir().unwrap();
     for line in String::from_utf8(tidy_stdout.to_vec()).unwrap().lines() {
         if let Some(captured) = note_header.captures(line) {
             if let Some(note) = notification {
@@ -103,22 +104,20 @@ fn parse_tidy_output(
                         // file was not a named unit in the database;
                         // try to normalize path as if relative to working directory.
                         // NOTE: This shouldn't happen with a properly formed JSON database
-                        filename = normalize_path(&PathBuf::from_iter([
-                            &current_dir().unwrap(),
-                            &filename,
-                        ]));
+                        filename = normalize_path(&PathBuf::from_iter([&cur_dir, &filename]));
                     }
                 } else {
                     // still need to normalize the relative path despite missing database info.
                     // let's assume the file is relative to current working directory.
-                    filename =
-                        normalize_path(&PathBuf::from_iter([&current_dir().unwrap(), &filename]));
+                    filename = normalize_path(&PathBuf::from_iter([&cur_dir, &filename]));
                 }
             }
             assert!(filename.is_absolute());
-            if filename.is_absolute() {
+            if filename.is_absolute() && filename.starts_with(&cur_dir) {
+                // if this filename can't be made into a relative path, then it is
+                // likely not a member of the project's sources (ie /usr/include/stdio.h)
                 filename = filename
-                    .strip_prefix(current_dir().unwrap())
+                    .strip_prefix(&cur_dir)
                     .expect("cannot determine filename by relative path.")
                     .to_path_buf();
             }

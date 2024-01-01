@@ -19,6 +19,9 @@ use crate::git::{get_diff, open_repo, parse_diff, parse_diff_from_buf};
 
 use super::RestApiClient;
 
+static USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0";
+
 /// A structure to work with Github REST API.
 pub struct GithubApiClient {
     /// The HTTP request client to be used for all REST API calls.
@@ -54,12 +57,11 @@ impl GithubApiClient {
         GithubApiClient {
             client: reqwest::blocking::Client::new(),
             event_payload: {
-                let event_payload_path = env::var("GITHUB_EVENT_PATH");
-                if event_payload_path.is_ok() {
+                if let Ok(event_payload_path) = env::var("GITHUB_EVENT_PATH") {
                     let file_buf = &mut String::new();
                     OpenOptions::new()
                         .read(true)
-                        .open(event_payload_path.unwrap())
+                        .open(event_payload_path)
                         .unwrap()
                         .read_to_string(file_buf)
                         .unwrap();
@@ -103,7 +105,7 @@ impl RestApiClient for GithubApiClient {
                 .expect("GITHUB_OUTPUT file could not be opened");
             if let Err(e) = writeln!(
                 gh_out_file,
-                "checks-failed={}\nformat-checks-failed={}\ntidy-checks-failed={}",
+                "checks-failed={}\nformat-checks-failed={}\ntidy-checks-failed={}\n",
                 checks_failed,
                 format_checks_failed.unwrap_or(0),
                 tidy_checks_failed.unwrap_or(0),
@@ -124,7 +126,6 @@ impl RestApiClient for GithubApiClient {
     }
 
     fn make_headers(&self, use_diff: Option<bool>) -> HeaderMap<HeaderValue> {
-        let gh_token = env::var("GITHUB_TOKEN");
         let mut headers = HeaderMap::new();
         let return_fmt = "application/vnd.github.".to_owned()
             + if use_diff.is_some_and(|val| val) {
@@ -133,10 +134,8 @@ impl RestApiClient for GithubApiClient {
                 "text+json"
             };
         headers.insert("Accept", return_fmt.parse().unwrap());
-        let user_agent =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0";
-        headers.insert("User-Agent", user_agent.parse().unwrap());
-        if let Ok(token) = gh_token {
+        headers.insert("User-Agent", USER_AGENT.parse().unwrap());
+        if let Ok(token) = env::var("GITHUB_TOKEN") {
             headers.insert("Authorization", token.parse().unwrap());
         }
         headers
@@ -470,4 +469,138 @@ struct Comment {
 struct User {
     pub login: String,
     pub id: u64,
+}
+
+#[cfg(test)]
+mod test {
+    use std::{env, io::Read, path::PathBuf};
+
+    use tempfile::{tempdir, NamedTempFile};
+
+    use super::{GithubApiClient, USER_AGENT};
+    use crate::{
+        clang_tools::capture_clang_tools_output, common_fs::FileObj, rest_api::RestApiClient,
+    };
+
+    // ************************** tests for GithubApiClient::make_headers()
+
+    #[test]
+    fn get_headers_json_token() {
+        let rest_api_client = GithubApiClient::new();
+        env::set_var("GITHUB_TOKEN", "123456");
+        let headers = rest_api_client.make_headers(None);
+        assert!(headers.contains_key("User-Agent"));
+        assert_eq!(headers.get("User-Agent").unwrap(), USER_AGENT);
+        assert!(headers.contains_key("Accept"));
+        assert!(headers
+            .get("Accept")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .ends_with("text+json"));
+        assert!(headers.contains_key("Authorization"));
+        assert_eq!(headers.get("Authorization").unwrap(), "123456");
+    }
+
+    #[test]
+    fn get_headers_diff() {
+        let rest_api_client = GithubApiClient::new();
+        let headers = rest_api_client.make_headers(Some(true));
+        assert!(headers.contains_key("User-Agent"));
+        assert_eq!(headers.get("User-Agent").unwrap(), USER_AGENT);
+        assert!(headers.contains_key("Accept"));
+        assert!(headers
+            .get("Accept")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .ends_with("diff"));
+    }
+
+    // ************************** tests for GithubApiClient::set_exit_code()
+
+    #[test]
+    fn set_exit_code() {
+        let rest_api_client = GithubApiClient::new();
+        let checks_failed = 3;
+        let format_checks_failed = 2;
+        let tidy_checks_failed = 1;
+        let tmp_dir = tempdir().unwrap();
+        let mut tmp_file = NamedTempFile::new_in(tmp_dir.path()).unwrap();
+        env::set_var("GITHUB_OUTPUT", tmp_file.path());
+        assert_eq!(
+            checks_failed,
+            rest_api_client.set_exit_code(
+                checks_failed,
+                Some(format_checks_failed),
+                Some(tidy_checks_failed)
+            )
+        );
+        let mut output_file_content = String::new();
+        tmp_file.read_to_string(&mut output_file_content).unwrap();
+        assert!(output_file_content.contains(
+            format!(
+                "checks-failed={}\nformat-checks-failed={}\ntidy-checks-failed={}\n",
+                3, 2, 1
+            )
+            .as_str()
+        ));
+        println!("temp file used: {:?}", tmp_file.path());
+        drop(tmp_file);
+        drop(tmp_dir);
+    }
+
+    // ************************* tests for comment output
+
+    #[test]
+    fn check_comment_concerns() {
+        let tmp_dir = tempdir().unwrap();
+        let mut tmp_file = NamedTempFile::new_in(tmp_dir.path()).unwrap();
+        let rest_api_client = GithubApiClient::new();
+        let files = vec![FileObj::new(PathBuf::from("tests/demo/demo.cpp"))];
+        let (format_advice, tidy_advice) = capture_clang_tools_output(
+            &files,
+            env::var("CLANG-VERSION").unwrap_or("".to_string()).as_str(),
+            "readability-*",
+            "file",
+            0,
+            None,
+            None,
+        );
+        let (comment, format_checks_failed, tidy_checks_failed) =
+            rest_api_client.make_comment(&files, &format_advice, &tidy_advice);
+        assert!(format_checks_failed > 0);
+        assert!(tidy_checks_failed > 0);
+        env::set_var("GITHUB_STEP_SUMMARY", tmp_file.path());
+        rest_api_client.post_step_summary(&comment);
+        let mut output_file_content = String::new();
+        tmp_file.read_to_string(&mut output_file_content).unwrap();
+        assert_eq!(format!("\n{comment}\n\n"), output_file_content);
+    }
+
+    #[test]
+    fn check_comment_lgtm() {
+        let tmp_dir = tempdir().unwrap();
+        let mut tmp_file = NamedTempFile::new_in(tmp_dir.path()).unwrap();
+        let rest_api_client = GithubApiClient::new();
+        let files = vec![FileObj::new(PathBuf::from("tests/demo/demo.cpp"))];
+        let (format_advice, tidy_advice) = capture_clang_tools_output(
+            &files,
+            env::var("CLANG-VERSION").unwrap_or("".to_string()).as_str(),
+            "-*",
+            "",
+            0,
+            None,
+            None,
+        );
+        let (comment, format_checks_failed, tidy_checks_failed) =
+            rest_api_client.make_comment(&files, &format_advice, &tidy_advice);
+        assert_eq!(format_checks_failed, 0);
+        assert_eq!(tidy_checks_failed, 0);
+        env::set_var("GITHUB_STEP_SUMMARY", tmp_file.path());
+        rest_api_client.post_step_summary(&comment);
+        let mut output_file_content = String::new();
+        tmp_file.read_to_string(&mut output_file_content).unwrap();
+        assert_eq!(format!("\n{comment}\n\n"), output_file_content);
+    }
 }
