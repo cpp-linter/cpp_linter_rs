@@ -45,6 +45,18 @@ pub struct Replacement {
     pub cols: Option<usize>,
 }
 
+impl Clone for Replacement {
+    fn clone(&self) -> Self {
+        Replacement {
+            offset: self.offset,
+            length: self.length,
+            value: self.value.clone(),
+            line: self.line,
+            cols: self.cols,
+        }
+    }
+}
+
 /// Run clang-tidy for a specific `file`, then parse and return it's XML output.
 pub fn run_clang_format(
     cmd: &mut Command,
@@ -53,15 +65,9 @@ pub fn run_clang_format(
     lines_changed_only: u8,
 ) -> FormatAdvice {
     cmd.args(["--style", style, "--output-replacements-xml"]);
-    if lines_changed_only > 0 {
-        let ranges = if lines_changed_only == 2 {
-            &file.diff_chunks
-        } else {
-            &file.added_ranges
-        };
-        for range in ranges {
-            cmd.arg(format!("--lines={}:{}", range.start(), range.end()));
-        }
+    let ranges = file.get_ranges(lines_changed_only);
+    for range in &ranges {
+        cmd.arg(format!("--lines={}:{}", range.start(), range.end()));
     }
     cmd.arg(file.name.to_string_lossy().as_ref());
     log::info!(
@@ -103,11 +109,23 @@ pub fn run_clang_format(
             replacements: vec![],
         });
     if !format_advice.replacements.is_empty() {
+        let mut filtered_replacements = Vec::new();
         for replacement in &mut format_advice.replacements {
             let (line_number, columns) = get_line_cols_from_offset(&file.name, replacement.offset);
             replacement.line = Some(line_number);
             replacement.cols = Some(columns);
+            for range in &ranges {
+                if range.contains(&line_number.try_into().unwrap_or(0)) {
+                    filtered_replacements.push(replacement.clone());
+                    break;
+                }
+            }
+            if ranges.is_empty() {
+                // lines_changed_only is disabled
+                filtered_replacements.push(replacement.clone());
+            }
         }
+        format_advice.replacements = filtered_replacements;
     }
     format_advice
 }

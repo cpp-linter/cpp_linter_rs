@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 // non-std crates
 use log::{set_max_level, LevelFilter};
-#[cfg(features = "openssl-vendored")]
+#[cfg(feature = "openssl-vendored")]
 use openssl_probe;
 
 // project specific modules/crates
@@ -19,12 +19,12 @@ use crate::github_api::GithubApiClient;
 use crate::logger::{self, end_log_group, start_log_group};
 use crate::rest_api::RestApiClient;
 
-#[cfg(features = "openssl-vendored")]
+#[cfg(feature = "openssl-vendored")]
 fn probe_ssl_certs() {
     openssl_probe::init_ssl_cert_env_vars();
 }
 
-#[cfg(not(openssl_probe))]
+#[cfg(not(feature = "openssl-vendored"))]
 fn probe_ssl_certs() {}
 
 /// This is the backend entry point for console applications.
@@ -139,7 +139,6 @@ pub fn run_main(args: Vec<String>) -> i32 {
         step_summary,
         file_annotations,
         style,
-        lines_changed_only,
     );
     end_log_group();
     0

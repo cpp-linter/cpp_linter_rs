@@ -133,6 +133,5 @@ pub trait RestApiClient {
         step_summary: bool,
         file_annotations: bool,
         style: &str,
-        lines_changed_only: u8,
     );
 }

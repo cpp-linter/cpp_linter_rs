@@ -68,6 +68,16 @@ impl FileObj {
         }
         ranges
     }
+
+    pub fn get_ranges(&self, lines_changed_only: u8) -> Vec<RangeInclusive<u32>> {
+        if lines_changed_only == 2 {
+            self.diff_chunks.to_vec()
+        } else if lines_changed_only == 1 {
+            self.added_ranges.to_vec()
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 /// Describes if a specified `file_name` is contained within the given `set` of paths.
@@ -234,11 +244,15 @@ pub fn normalize_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod test {
+    use std::env::current_dir;
+    use std::env::set_current_dir;
+    use std::path::PathBuf;
+
+    use super::{get_line_cols_from_offset, list_source_files, normalize_path, FileObj};
+    use crate::cli::{get_arg_parser, parse_ignore};
+    use crate::common_fs::is_file_in_list;
 
     // *********************** tests for normalized paths
-    use super::{list_source_files, normalize_path};
-    use std::env::current_dir;
-    use std::path::PathBuf;
 
     #[test]
     fn normalize_redirects() {
@@ -274,9 +288,6 @@ mod test {
     }
 
     // ************* tests for ignored paths
-    use crate::cli::{get_arg_parser, parse_ignore};
-    use crate::common_fs::is_file_in_list;
-    use std::env::set_current_dir;
 
     fn setup_ignore(input: &str) -> (Vec<String>, Vec<String>) {
         let arg_parser = get_arg_parser();
@@ -359,6 +370,8 @@ mod test {
         ));
     }
 
+    // *********************** tests for recursive path search
+
     #[test]
     fn walk_dir_recursively() {
         let (ignored, not_ignored) = setup_ignore("target");
@@ -378,12 +391,48 @@ mod test {
         }
     }
 
-    use super::get_line_cols_from_offset;
+    // *********************** tests for translating byte offset into line/column
+
     #[test]
     fn translate_byte_offset() {
         let (lines, cols) = get_line_cols_from_offset(&PathBuf::from("tests/demo/demo.cpp"), 144);
         println!("lines: {lines}, cols: {cols}");
         assert_eq!(lines, 13);
         assert_eq!(cols, 5);
+    }
+
+    // *********************** tests for FileObj::get_ranges()
+
+    #[test]
+    fn get_ranges_0() {
+        let file_obj = FileObj::new(PathBuf::from("tests/demo/demo.cpp"));
+        let ranges = file_obj.get_ranges(0);
+        assert!(ranges.is_empty());
+    }
+
+    #[test]
+    fn get_ranges_2() {
+        let diff_chunks = vec![1..=10];
+        let added_lines = vec![4, 5, 9];
+        let file_obj = FileObj::from(
+            PathBuf::from("tests/demo/demo.cpp"),
+            added_lines,
+            diff_chunks.clone(),
+        );
+        let ranges = file_obj.get_ranges(2);
+        assert_eq!(ranges, diff_chunks);
+    }
+
+    #[test]
+    fn get_ranges_1() {
+        let diff_chunks = vec![1..=10];
+        let added_lines = vec![4, 5, 9];
+        let file_obj = FileObj::from(
+            PathBuf::from("tests/demo/demo.cpp"),
+            added_lines,
+            diff_chunks,
+        );
+        let ranges = file_obj.get_ranges(1);
+        assert_eq!(ranges, vec![4..=5, 9..=9]);
     }
 }

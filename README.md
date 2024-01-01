@@ -49,4 +49,4 @@ The python binding uses
 - [pyo3](https://crates.io/crates/pyo3): Dual-licensed under [Apache 2.0][Apache2] or [MIT][MIT].
 
 [MIT]: https://choosealicense.com/licenses/mit
-[Apache2]: https://github.com/clap-rs/clap/blob/HEAD/LICENSE-APACHE
+[Apache2]: https://choosealicense.com/licenses/apache-2.0/

@@ -23,7 +23,7 @@ serde_json = "1.0.108"
 which = "5.0.0"
 
 [dev-dependencies]
-tempfile = "3.8.1"
+tempfile = "3.9.0"
 
 [features]
 openssl-vendored = ["dep:openssl", "dep:openssl-probe"]

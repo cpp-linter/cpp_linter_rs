@@ -195,5 +195,5 @@ Cargo.lock
 
 
 # ignore generated files
-.cpp_linter_cache/
+.cpp-linter_cache/
 cpp-linter-py/docs/cli_args.rst

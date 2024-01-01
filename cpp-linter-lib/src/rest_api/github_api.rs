@@ -193,7 +193,6 @@ impl RestApiClient for GithubApiClient {
         step_summary: bool,
         file_annotations: bool,
         style: &str,
-        lines_changed_only: u8,
     ) {
         let (comment, format_checks_failed, tidy_checks_failed) =
             self.make_comment(files, format_advice, tidy_advice);
@@ -248,7 +247,7 @@ impl RestApiClient for GithubApiClient {
             }
         }
         if file_annotations {
-            self.post_annotations(files, format_advice, tidy_advice, style, lines_changed_only);
+            self.post_annotations(files, format_advice, tidy_advice, style);
         }
         if step_summary {
             self.post_step_summary(&comment);
@@ -280,7 +279,6 @@ impl GithubApiClient {
         format_advice: &[FormatAdvice],
         tidy_advice: &[Vec<TidyNotification>],
         style: &str,
-        lines_changed_only: u8,
     ) {
         if !format_advice.is_empty() {
             // formalize the style guide name
@@ -298,36 +296,18 @@ impl GithubApiClient {
                     String::from("Custom")
                 };
 
-            // iterate over clang-format and post applicable annotations (according to line filtering)
+            // iterate over clang-format advice and post annotations
             for (index, advice) in format_advice.iter().enumerate() {
-                // get the ranges of lines for the corresponding file
-                let ranges = if lines_changed_only == 0 {
-                    None
-                } else if lines_changed_only == 1 {
-                    Some(&files[index].added_ranges)
-                } else {
-                    Some(&files[index].diff_chunks)
-                };
-
-                // assemble a list of line numbers (as strings)
+                // assemble a list of line numbers
                 let mut lines: Vec<usize> = Vec::new();
                 for replacement in &advice.replacements {
                     if let Some(line_int) = replacement.line {
                         if !lines.contains(&line_int) {
-                            if let Some(line_ranges) = ranges {
-                                for line_range in line_ranges {
-                                    if line_range.contains(&line_int.try_into().unwrap()) {
-                                        lines.push(line_int);
-                                        break;
-                                    }
-                                }
-                            } else {
-                                lines.push(line_int);
-                            }
+                            lines.push(line_int);
                         }
                     }
                 }
-                // post annotation if any applicable lines were format
+                // post annotation if any applicable lines were formatted
                 if !lines.is_empty() {
                     println!(
                         "::notice file={name},title=Run clang-format on {name}::File {name} does not conform to {style_guide} style guidelines. (lines {line_set})",

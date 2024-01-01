@@ -144,30 +144,6 @@ fn parse_tidy_output(
     result
 }
 
-#[cfg(test)]
-mod test {
-    #[test]
-    fn test_capture() {
-        let src = "tests/demo/demo.hpp:11:11: warning: use a trailing return type for this function [modernize-use-trailing-return-type]";
-        let pat =
-            regex::Regex::new(r"^(.+):(\d+):(\d+):\s(\w+):(.*)\[([a-zA-Z\d\-\.]+)\]$").unwrap();
-        let cap = pat.captures(src).unwrap();
-        assert_eq!(
-            cap.get(0).unwrap().as_str(),
-            format!(
-                "{}:{}:{}: {}:{}[{}]",
-                cap.get(1).unwrap().as_str(),
-                cap.get(2).unwrap().as_str(),
-                cap.get(3).unwrap().as_str(),
-                cap.get(4).unwrap().as_str(),
-                cap.get(5).unwrap().as_str(),
-                cap.get(6).unwrap().as_str()
-            )
-            .as_str()
-        )
-    }
-}
-
 /// Run clang-tidy, then parse and return it's output.
 pub fn run_clang_tidy(
     cmd: &mut Command,
@@ -190,11 +166,7 @@ pub fn run_clang_tidy(
         }
     }
     if lines_changed_only > 0 {
-        let ranges = if lines_changed_only == 2 {
-            &file.diff_chunks
-        } else {
-            &file.added_ranges
-        };
+        let ranges = file.get_ranges(lines_changed_only);
         let filter = format!(
             "[{{\"name\":{:?},\"lines\":{:?}}}]",
             &file
@@ -229,4 +201,28 @@ pub fn run_clang_tidy(
         );
     }
     parse_tidy_output(&output.stdout, database_json)
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_capture() {
+        let src = "tests/demo/demo.hpp:11:11: warning: use a trailing return type for this function [modernize-use-trailing-return-type]";
+        let pat =
+            regex::Regex::new(r"^(.+):(\d+):(\d+):\s(\w+):(.*)\[([a-zA-Z\d\-\.]+)\]$").unwrap();
+        let cap = pat.captures(src).unwrap();
+        assert_eq!(
+            cap.get(0).unwrap().as_str(),
+            format!(
+                "{}:{}:{}: {}:{}[{}]",
+                cap.get(1).unwrap().as_str(),
+                cap.get(2).unwrap().as_str(),
+                cap.get(3).unwrap().as_str(),
+                cap.get(4).unwrap().as_str(),
+                cap.get(5).unwrap().as_str(),
+                cap.get(6).unwrap().as_str()
+            )
+            .as_str()
+        )
+    }
 }
