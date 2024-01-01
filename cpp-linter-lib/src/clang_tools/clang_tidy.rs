@@ -204,11 +204,20 @@ pub fn run_clang_tidy(
 
 #[cfg(test)]
 mod test {
+    use std::{env, path::PathBuf, process::Command};
+
+    use regex::Regex;
+
+    use crate::{clang_tools::get_clang_tool_exe, common_fs::FileObj};
+
+    use super::run_clang_tidy;
+
+    // ***************** test for regex parsing of clang-tidy stdout
+
     #[test]
     fn test_capture() {
         let src = "tests/demo/demo.hpp:11:11: warning: use a trailing return type for this function [modernize-use-trailing-return-type]";
-        let pat =
-            regex::Regex::new(r"^(.+):(\d+):(\d+):\s(\w+):(.*)\[([a-zA-Z\d\-\.]+)\]$").unwrap();
+        let pat = Regex::new(r"^(.+):(\d+):(\d+):\s(\w+):(.*)\[([a-zA-Z\d\-\.]+)\]$").unwrap();
         let cap = pat.captures(src).unwrap();
         assert_eq!(
             cap.get(0).unwrap().as_str(),
@@ -223,5 +232,37 @@ mod test {
             )
             .as_str()
         )
+    }
+
+    #[test]
+    fn use_extra_args() {
+        let exe_path = get_clang_tool_exe(
+            "clang-tidy",
+            env::var("CLANG_VERSION").unwrap_or("".to_string()).as_str(),
+        )
+        .unwrap();
+        let mut cmd = Command::new(exe_path);
+        let file = FileObj::new(PathBuf::from("tests/demo/demo.cpp"));
+        let extra_args = vec!["-std=c++17", "-Wall"];
+        let tidy_advice = run_clang_tidy(
+            &mut cmd,
+            &file,
+            "",                // use .clang-tidy config file
+            0,                 // check all lines
+            &None,             // no database path
+            &Some(extra_args), // <---- the reason for this test
+            &None,             // no deserialized database
+        );
+        // since `cmd` was passed as a mutable reference, we can inspect the args that were added
+        let mut args = cmd
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect::<Vec<&str>>();
+        assert_eq!(file.name.to_string_lossy(), args.pop().unwrap());
+        assert_eq!(
+            vec!["--extra-arg", "\"-std=c++17\"", "--extra-arg", "\"-Wall\""],
+            args
+        );
+        assert!(!tidy_advice.is_empty());
     }
 }

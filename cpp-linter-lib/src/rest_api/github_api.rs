@@ -105,7 +105,7 @@ impl RestApiClient for GithubApiClient {
                 .expect("GITHUB_OUTPUT file could not be opened");
             if let Err(e) = writeln!(
                 gh_out_file,
-                "checks-failed={}\nformat-checks-failed={}\ntidy-checks-failed={}\n",
+                "checks-failed={}\nformat-checks-failed={}\ntidy-checks-failed={}",
                 checks_failed,
                 format_checks_failed.unwrap_or(0),
                 tidy_checks_failed.unwrap_or(0),
