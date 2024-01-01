@@ -79,6 +79,7 @@ fn parse_tidy_output(
     let note_header = Regex::new(r"^(.+):(\d+):(\d+):\s(\w+):(.*)\[([a-zA-Z\d\-\.]+)\]$").unwrap();
     let mut notification = None;
     let mut result = Vec::new();
+    let cur_dir = current_dir().unwrap();
     for line in String::from_utf8(tidy_stdout.to_vec()).unwrap().lines() {
         if let Some(captured) = note_header.captures(line) {
             if let Some(note) = notification {
@@ -103,22 +104,20 @@ fn parse_tidy_output(
                         // file was not a named unit in the database;
                         // try to normalize path as if relative to working directory.
                         // NOTE: This shouldn't happen with a properly formed JSON database
-                        filename = normalize_path(&PathBuf::from_iter([
-                            &current_dir().unwrap(),
-                            &filename,
-                        ]));
+                        filename = normalize_path(&PathBuf::from_iter([&cur_dir, &filename]));
                     }
                 } else {
                     // still need to normalize the relative path despite missing database info.
                     // let's assume the file is relative to current working directory.
-                    filename =
-                        normalize_path(&PathBuf::from_iter([&current_dir().unwrap(), &filename]));
+                    filename = normalize_path(&PathBuf::from_iter([&cur_dir, &filename]));
                 }
             }
             assert!(filename.is_absolute());
-            if filename.is_absolute() {
+            if filename.is_absolute() && filename.starts_with(&cur_dir) {
+                // if this filename can't be made into a relative path, then it is
+                // likely not a member of the project's sources (ie /usr/include/stdio.h)
                 filename = filename
-                    .strip_prefix(current_dir().unwrap())
+                    .strip_prefix(&cur_dir)
                     .expect("cannot determine filename by relative path.")
                     .to_path_buf();
             }
@@ -205,11 +204,20 @@ pub fn run_clang_tidy(
 
 #[cfg(test)]
 mod test {
+    use std::{env, path::PathBuf, process::Command};
+
+    use regex::Regex;
+
+    use crate::{clang_tools::get_clang_tool_exe, common_fs::FileObj};
+
+    use super::run_clang_tidy;
+
+    // ***************** test for regex parsing of clang-tidy stdout
+
     #[test]
     fn test_capture() {
         let src = "tests/demo/demo.hpp:11:11: warning: use a trailing return type for this function [modernize-use-trailing-return-type]";
-        let pat =
-            regex::Regex::new(r"^(.+):(\d+):(\d+):\s(\w+):(.*)\[([a-zA-Z\d\-\.]+)\]$").unwrap();
+        let pat = Regex::new(r"^(.+):(\d+):(\d+):\s(\w+):(.*)\[([a-zA-Z\d\-\.]+)\]$").unwrap();
         let cap = pat.captures(src).unwrap();
         assert_eq!(
             cap.get(0).unwrap().as_str(),
@@ -224,5 +232,37 @@ mod test {
             )
             .as_str()
         )
+    }
+
+    #[test]
+    fn use_extra_args() {
+        let exe_path = get_clang_tool_exe(
+            "clang-tidy",
+            env::var("CLANG_VERSION").unwrap_or("".to_string()).as_str(),
+        )
+        .unwrap();
+        let mut cmd = Command::new(exe_path);
+        let file = FileObj::new(PathBuf::from("tests/demo/demo.cpp"));
+        let extra_args = vec!["-std=c++17", "-Wall"];
+        let tidy_advice = run_clang_tidy(
+            &mut cmd,
+            &file,
+            "",                // use .clang-tidy config file
+            0,                 // check all lines
+            &None,             // no database path
+            &Some(extra_args), // <---- the reason for this test
+            &None,             // no deserialized database
+        );
+        // since `cmd` was passed as a mutable reference, we can inspect the args that were added
+        let mut args = cmd
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect::<Vec<&str>>();
+        assert_eq!(file.name.to_string_lossy(), args.pop().unwrap());
+        assert_eq!(
+            vec!["--extra-arg", "\"-std=c++17\"", "--extra-arg", "\"-Wall\""],
+            args
+        );
+        assert!(!tidy_advice.is_empty());
     }
 }
