@@ -4,7 +4,7 @@ use std::fs;
 
 // non-std crates
 use clap::builder::FalseyValueParser;
-use clap::{Arg, ArgAction, Command};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 
 /// Builds and returns the Command Line Interface's argument parsing object.
 pub fn get_arg_parser() -> Command {
@@ -322,4 +322,94 @@ pub fn parse_ignore(ignore: &[&str]) -> (Vec<String>, Vec<String>) {
         }
     }
     (ignored, not_ignored)
+}
+
+/// Converts the parsed value of the `--extra-arg` option into an optional vector of strings.
+///
+/// This is for adapting to 2 scenarios where `--extra-arg` is either
+///
+/// - specified multiple times
+///     - each val is appended to a [`Vec`] (by clap crate)
+/// - specified once with multiple space-separated values
+///     - resulting [`Vec`] is made from splitting at the spaces between
+/// - not specified at all (returns [`None`])
+///
+/// It is preferred that the values specified in either situation do not contain spaces and are
+/// quoted:
+/// ```shell
+/// --extra-arg="-std=c++17" --extra-arg="-Wall"
+/// # or equivalently
+/// --extra-arg="-std=c++17 -Wall"
+/// ```
+/// The cpp-linter-action (for Github CI workflows) can only use 1 `extra-arg` input option, so
+/// the value will be split at spaces.
+pub fn convert_extra_arg_val(args: &ArgMatches) -> Option<Vec<&str>> {
+    let raw_val = if let Ok(extra_args) = args.try_get_many::<String>("extra-arg") {
+        extra_args.map(|extras| extras.map(|val| val.as_str()).collect::<Vec<_>>())
+    } else {
+        None
+    };
+    if let Some(val) = raw_val {
+        if val.len() == 1 {
+            // specified once; split and return result
+            Some(
+                val[0]
+                    .trim_matches('\'')
+                    .trim_matches('"')
+                    .split(' ')
+                    .collect(),
+            )
+        } else {
+            // specified multiple times; just return
+            Some(val)
+        }
+    } else {
+        // no value specified; just return
+        None
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use clap::ArgMatches;
+
+    use super::{convert_extra_arg_val, get_arg_parser};
+
+    fn parser_args(input: Vec<&str>) -> ArgMatches {
+        let arg_parser = get_arg_parser();
+        arg_parser.get_matches_from(input)
+    }
+
+    #[test]
+    fn extra_arg_0() {
+        let args = parser_args(vec!["cpp-linter"]);
+        let extras = convert_extra_arg_val(&args);
+        assert!(extras.is_none());
+    }
+
+    #[test]
+    fn extra_arg_1() {
+        let args = parser_args(vec!["cpp-linter", "--extra-arg='-std=c++17 -Wall'"]);
+        let extras = convert_extra_arg_val(&args);
+        assert!(extras.is_some());
+        if let Some(extra_args) = extras {
+            assert_eq!(extra_args.len(), 2);
+            assert_eq!(extra_args, ["-std=c++17", "-Wall"])
+        }
+    }
+
+    #[test]
+    fn extra_arg_2() {
+        let args = parser_args(vec![
+            "cpp-linter",
+            "--extra-arg=-std=c++17",
+            "--extra-arg=-Wall",
+        ]);
+        let extras = convert_extra_arg_val(&args);
+        assert!(extras.is_some());
+        if let Some(extra_args) = extras {
+            assert_eq!(extra_args.len(), 2);
+            assert_eq!(extra_args, ["-std=c++17", "-Wall"])
+        }
+    }
 }

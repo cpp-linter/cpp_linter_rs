@@ -13,7 +13,7 @@ use openssl_probe;
 
 // project specific modules/crates
 use crate::clang_tools::capture_clang_tools_output;
-use crate::cli::{get_arg_parser, parse_ignore};
+use crate::cli::{convert_extra_arg_val, get_arg_parser, parse_ignore};
 use crate::common_fs::{list_source_files, FileObj};
 use crate::github_api::GithubApiClient;
 use crate::logger::{self, end_log_group, start_log_group};
@@ -112,6 +112,7 @@ pub fn run_main(args: Vec<String>) -> i32 {
     end_log_group();
 
     let style = args.get_one::<String>("style").unwrap();
+    let extra_args = convert_extra_arg_val(&args);
     let (format_advice, tidy_advice) = capture_clang_tools_output(
         &files,
         args.get_one::<String>("version").unwrap(),
@@ -119,11 +120,7 @@ pub fn run_main(args: Vec<String>) -> i32 {
         style,
         lines_changed_only,
         database_path,
-        if let Ok(extra_args) = args.try_get_many::<String>("extra-arg") {
-            extra_args.map(|extras| extras.map(|val| val.as_str()).collect())
-        } else {
-            None
-        },
+        extra_args,
     );
     start_log_group(String::from("Posting feedback"));
     let no_lgtm = args.get_flag("no-lgtm");
