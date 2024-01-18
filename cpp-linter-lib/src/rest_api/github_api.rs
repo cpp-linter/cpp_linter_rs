@@ -13,11 +13,11 @@ use serde::Deserialize;
 use serde_json;
 
 // project specific modules/crates
-use crate::clang_tools::{clang_format::FormatAdvice, clang_tidy::TidyNotification};
+use crate::clang_tools::{clang_format::FormatAdvice, clang_tidy::TidyAdvice};
 use crate::common_fs::FileObj;
 use crate::git::{get_diff, open_repo, parse_diff, parse_diff_from_buf};
 
-use super::RestApiClient;
+use super::{FeedbackInput, RestApiClient, COMMENT_MARKER};
 
 static USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0";
@@ -186,16 +186,12 @@ impl RestApiClient for GithubApiClient {
         &self,
         files: &[FileObj],
         format_advice: &[FormatAdvice],
-        tidy_advice: &[Vec<TidyNotification>],
-        thread_comments: &str,
-        no_lgtm: bool,
-        step_summary: bool,
-        file_annotations: bool,
-        style: &str,
+        tidy_advice: &[TidyAdvice],
+        user_inputs: FeedbackInput,
     ) {
         let (comment, format_checks_failed, tidy_checks_failed) =
             self.make_comment(files, format_advice, tidy_advice);
-        if thread_comments != "false" {
+        if user_inputs.thread_comments.as_str() != "false" {
             // post thread comment for PR or push event
             if let Some(repo) = &self.repo {
                 let is_pr = self.event_name == "pull_request";
@@ -222,15 +218,13 @@ impl RestApiClient for GithubApiClient {
                     } else {
                         json["commit"]["comment_count"].as_u64().unwrap()
                     };
-                    let user_id: u64 = 41898282;
                     self.update_comment(
                         &format!("{}/comments", &comments_url),
                         &comment,
                         count,
-                        user_id,
-                        no_lgtm,
+                        user_inputs.no_lgtm,
                         format_checks_failed + tidy_checks_failed == 0,
-                        thread_comments == "update",
+                        user_inputs.thread_comments.as_str() == "update",
                     );
                 } else {
                     let error = request.unwrap_err();
@@ -245,10 +239,15 @@ impl RestApiClient for GithubApiClient {
                 }
             }
         }
-        if file_annotations {
-            self.post_annotations(files, format_advice, tidy_advice, style);
+        if user_inputs.file_annotations {
+            self.post_annotations(
+                files,
+                format_advice,
+                tidy_advice,
+                user_inputs.style.as_str(),
+            );
         }
-        if step_summary {
+        if user_inputs.step_summary {
             self.post_step_summary(&comment);
         }
         self.set_exit_code(
@@ -276,7 +275,7 @@ impl GithubApiClient {
         &self,
         files: &[FileObj],
         format_advice: &[FormatAdvice],
-        tidy_advice: &[Vec<TidyNotification>],
+        tidy_advice: &[TidyAdvice],
         style: &str,
     ) {
         if !format_advice.is_empty() {
@@ -321,7 +320,7 @@ impl GithubApiClient {
         // The tidy_advice vector is parallel to the files vector; meaning it serves as a file filterer.
         // lines are already filter as specified to clang-tidy CLI.
         for (index, advice) in tidy_advice.iter().enumerate() {
-            for note in advice {
+            for note in &advice.notes {
                 if note.filename == files[index].name.to_string_lossy().replace('\\', "/") {
                     println!(
                         "::{severity} file={file},line={line},title={file}:{line}:{cols} [{diag}]::{info}",
@@ -344,13 +343,12 @@ impl GithubApiClient {
         url: &String,
         comment: &String,
         count: u64,
-        user_id: u64,
         no_lgtm: bool,
         is_lgtm: bool,
         update_only: bool,
     ) {
         let comment_url =
-            self.remove_bot_comments(url, user_id, count, !update_only || (is_lgtm && no_lgtm));
+            self.remove_bot_comments(url, count, !update_only || (is_lgtm && no_lgtm));
         #[allow(clippy::nonminimal_bool)] // an inaccurate assessment
         if (is_lgtm && !no_lgtm) || !is_lgtm {
             let payload = HashMap::from([("body", comment)]);
@@ -383,13 +381,7 @@ impl GithubApiClient {
         }
     }
 
-    fn remove_bot_comments(
-        &self,
-        url: &String,
-        count: u64,
-        user_id: u64,
-        delete: bool,
-    ) -> Option<String> {
+    fn remove_bot_comments(&self, url: &String, count: u64, delete: bool) -> Option<String> {
         let mut page = 1;
         let mut comment_url = None;
         let mut total = count;
@@ -402,9 +394,7 @@ impl GithubApiClient {
                 let payload: JsonCommentsPayload = response.json().unwrap();
                 let mut comment_count = 0;
                 for comment in payload.comments {
-                    if comment.body.starts_with("<!-- cpp linter action -->")
-                        && comment.user.id == user_id
-                    {
+                    if comment.body.starts_with(COMMENT_MARKER) {
                         log::debug!(
                             "comment id {} from user {} ({})",
                             comment.id,

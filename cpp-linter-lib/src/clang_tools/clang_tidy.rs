@@ -68,6 +68,26 @@ pub struct TidyNotification {
     pub suggestion: Vec<String>,
 }
 
+impl TidyNotification {
+    pub fn diagnostic_link(&self) -> String {
+        let ret_val = if let Some((category, name)) = self.diagnostic.split_once('-') {
+            format!(
+                "[{}](https://clang.llvm.org/extra/clang-tidy/checks/{category}/{name}).html",
+                self.diagnostic
+            )
+        } else {
+            self.diagnostic.clone()
+        };
+        ret_val
+    }
+}
+
+/// A struct to hold notification from clang-tidy about a single file
+pub struct TidyAdvice {
+    /// A list of notifications parsed from clang-tidy stdout.
+    pub notes: Vec<TidyNotification>,
+}
+
 /// Parses clang-tidy stdout.
 ///
 /// Here it helps to have the JSON database deserialized for normalizing paths present
@@ -75,7 +95,7 @@ pub struct TidyNotification {
 fn parse_tidy_output(
     tidy_stdout: &[u8],
     database_json: &Option<CompilationDatabase>,
-) -> Vec<TidyNotification> {
+) -> TidyAdvice {
     let note_header = Regex::new(r"^(.+):(\d+):(\d+):\s(\w+):(.*)\[([a-zA-Z\d\-\.]+)\]$").unwrap();
     let mut notification = None;
     let mut result = Vec::new();
@@ -140,7 +160,7 @@ fn parse_tidy_output(
     if let Some(note) = notification {
         result.push(note);
     }
-    result
+    TidyAdvice { notes: result }
 }
 
 /// Run clang-tidy, then parse and return it's output.
@@ -152,7 +172,7 @@ pub fn run_clang_tidy(
     database: &Option<PathBuf>,
     extra_args: &Option<Vec<&str>>,
     database_json: &Option<CompilationDatabase>,
-) -> Vec<TidyNotification> {
+) -> TidyAdvice {
     if !checks.is_empty() {
         cmd.args(["-checks", checks]);
     }
@@ -263,6 +283,6 @@ mod test {
             vec!["--extra-arg", "\"-std=c++17\"", "--extra-arg", "\"-Wall\""],
             args
         );
-        assert!(!tidy_advice.is_empty());
+        assert!(!tidy_advice.notes.is_empty());
     }
 }
