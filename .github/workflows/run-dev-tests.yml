@@ -48,7 +48,7 @@ jobs:
         with:
           tool: cargo-nextest,cargo-llvm-cov,cargo-binstall
 
-      - name: Install llvm-cov-pretty (HTL report generator)
+      - name: Install llvm-cov-pretty (HTML report generator)
         run: cargo binstall -y llvm-cov-pretty
 
       - uses: actions/setup-python@v5
@@ -90,7 +90,7 @@ jobs:
         working-directory: cpp-linter-lib
         env:
           CLANG_VERSION: ${{ matrix.version }}
-        run: cargo llvm-cov --hide-instantiations --lib --no-report nextest
+        run: cargo llvm-cov --lib --no-report nextest
 
       - name: Generate Coverage HTML report
         working-directory: cpp-linter-lib

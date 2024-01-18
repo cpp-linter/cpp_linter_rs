@@ -17,7 +17,7 @@ use crate::cli::{convert_extra_arg_val, get_arg_parser, parse_ignore};
 use crate::common_fs::{list_source_files, FileObj};
 use crate::github_api::GithubApiClient;
 use crate::logger::{self, end_log_group, start_log_group};
-use crate::rest_api::RestApiClient;
+use crate::rest_api::{FeedbackInput, RestApiClient};
 
 #[cfg(feature = "openssl-vendored")]
 fn probe_ssl_certs() {
@@ -111,32 +111,29 @@ pub fn run_main(args: Vec<String>) -> i32 {
     }
     end_log_group();
 
-    let style = args.get_one::<String>("style").unwrap();
+    let user_inputs = FeedbackInput {
+        style: args.get_one::<String>("style").unwrap().to_string(),
+        no_lgtm: args.get_flag("no-lgtm"),
+        step_summary: args.get_flag("step-summary"),
+        thread_comments: args
+            .get_one::<String>("thread-comments")
+            .unwrap()
+            .to_string(),
+        file_annotations: args.get_flag("file-annotations"),
+    };
+
     let extra_args = convert_extra_arg_val(&args);
     let (format_advice, tidy_advice) = capture_clang_tools_output(
         &files,
         args.get_one::<String>("version").unwrap(),
         args.get_one::<String>("tidy-checks").unwrap(),
-        style,
+        user_inputs.style.as_str(),
         lines_changed_only,
         database_path,
         extra_args,
     );
     start_log_group(String::from("Posting feedback"));
-    let no_lgtm = args.get_flag("no-lgtm");
-    let step_summary = args.get_flag("step-summary");
-    let thread_comments = args.get_one::<String>("thread-comments").unwrap();
-    let file_annotations = args.get_flag("file-annotations");
-    rest_api_client.post_feedback(
-        &files,
-        &format_advice,
-        &tidy_advice,
-        thread_comments,
-        no_lgtm,
-        step_summary,
-        file_annotations,
-        style,
-    );
+    rest_api_client.post_feedback(&files, &format_advice, &tidy_advice, user_inputs);
     end_log_group();
     0
 }

@@ -10,8 +10,32 @@ use reqwest::header::{HeaderMap, HeaderValue};
 
 // project specific modules/crates
 pub mod github_api;
-use crate::clang_tools::{clang_format::FormatAdvice, clang_tidy::TidyNotification};
+use crate::clang_tools::{clang_format::FormatAdvice, clang_tidy::TidyAdvice};
 use crate::common_fs::FileObj;
+
+pub static COMMENT_MARKER: &str = "<!-- cpp linter action -->";
+
+/// A struct to hold a collection of user inputs related to [`ResApiClient.post_feedback()`].
+pub struct FeedbackInput {
+    pub thread_comments: String,
+    pub no_lgtm: bool,
+    pub step_summary: bool,
+    pub file_annotations: bool,
+    pub style: String,
+}
+
+impl Default for FeedbackInput {
+    /// Construct a [`UserInput`] instance with default values.
+    fn default() -> Self {
+        FeedbackInput {
+            thread_comments: "false".to_string(),
+            no_lgtm: true,
+            step_summary: false,
+            file_annotations: true,
+            style: "llvm".to_string(),
+        }
+    }
+}
 
 /// A custom trait that templates necessary functionality with a Git server's REST API.
 pub trait RestApiClient {
@@ -53,7 +77,7 @@ pub trait RestApiClient {
         &self,
         files: &[FileObj],
         format_advice: &[FormatAdvice],
-        tidy_advice: &[Vec<TidyNotification>],
+        tidy_advice: &[TidyAdvice],
     ) -> (String, i32, i32) {
         let mut comment = String::from("<!-- cpp linter action -->\n# Cpp-Linter Report ");
         let mut format_checks_failed = 0;
@@ -73,8 +97,8 @@ pub trait RestApiClient {
         }
 
         let mut tidy_comment = String::new();
-        for (index, tidy_notes) in tidy_advice.iter().enumerate() {
-            for tidy_note in tidy_notes {
+        for (index, advice) in tidy_advice.iter().enumerate() {
+            for tidy_note in &advice.notes {
                 let file_path = PathBuf::from(&tidy_note.filename);
                 if file_path == files[index].name {
                     tidy_comment.push_str(&format!("- {}\n\n", tidy_note.filename));
@@ -84,7 +108,7 @@ pub trait RestApiClient {
                         line = tidy_note.line,
                         cols = tidy_note.cols,
                         severity = tidy_note.severity,
-                        diagnostic = tidy_note.diagnostic,
+                        diagnostic = tidy_note.diagnostic_link(),
                         rationale = tidy_note.rationale,
                         concerned_code = if tidy_note.suggestion.is_empty() {String::from("")} else {
                             format!("\n   ```{ext}\n   {suggestion}\n   ```\n",
@@ -122,16 +146,11 @@ pub trait RestApiClient {
     /// clang-format and clang-tidy (see `capture_clang_tools_output()`).
     ///
     /// All other parameters correspond to CLI arguments.
-    #[allow(clippy::too_many_arguments)]
     fn post_feedback(
         &self,
         files: &[FileObj],
         format_advice: &[FormatAdvice],
-        tidy_advice: &[Vec<TidyNotification>],
-        thread_comments: &str,
-        no_lgtm: bool,
-        step_summary: bool,
-        file_annotations: bool,
-        style: &str,
+        tidy_advice: &[TidyAdvice],
+        user_inputs: FeedbackInput,
     );
 }

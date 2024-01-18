@@ -14,7 +14,7 @@ use crate::logger::{end_log_group, start_log_group};
 pub mod clang_format;
 use clang_format::{run_clang_format, FormatAdvice};
 pub mod clang_tidy;
-use clang_tidy::{run_clang_tidy, CompilationDatabase, TidyNotification};
+use clang_tidy::{run_clang_tidy, CompilationDatabase, TidyAdvice};
 
 /// Fetch the path to a clang tool by `name` (ie `"clang-tidy"` or `"clang-format"`) and
 /// `version`.
@@ -69,7 +69,7 @@ pub fn get_clang_tool_exe(name: &str, version: &str) -> Result<PathBuf, &'static
 /// Runs clang-tidy and/or clang-format and returns the parsed output from each.
 ///
 /// The returned list of [`FormatAdvice`] is parallel to the `files` list passed in
-/// here. The returned 2D list of [`TidyNotification`] is also parallel on the first
+/// here. The returned 2D list of [`TidyAdvice`] is also parallel on the first
 /// dimension. The second dimension is a list of notes specific to a translation unit
 /// (each element of `files`).
 ///
@@ -83,7 +83,7 @@ pub fn capture_clang_tools_output(
     lines_changed_only: u8,
     database: Option<PathBuf>,
     extra_args: Option<Vec<&str>>,
-) -> (Vec<FormatAdvice>, Vec<Vec<TidyNotification>>) {
+) -> (Vec<FormatAdvice>, Vec<TidyAdvice>) {
     // find the executable paths for clang-tidy and/or clang-format and show version
     // info as debugging output.
     let clang_tidy_command = if tidy_checks != "-*" {
@@ -126,9 +126,8 @@ pub fn capture_clang_tools_output(
     };
 
     // iterate over the discovered files and run the clang tools
-    let mut all_format_advice: Vec<clang_format::FormatAdvice> = Vec::with_capacity(files.len());
-    let mut all_tidy_advice: Vec<Vec<clang_tidy::TidyNotification>> =
-        Vec::with_capacity(files.len());
+    let mut all_format_advice: Vec<FormatAdvice> = Vec::with_capacity(files.len());
+    let mut all_tidy_advice: Vec<TidyAdvice> = Vec::with_capacity(files.len());
     for file in files {
         start_log_group(format!("Analyzing {}", file.name.to_string_lossy()));
         if let Some(tidy_cmd) = &clang_tidy_command {

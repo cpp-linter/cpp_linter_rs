@@ -13,11 +13,14 @@ use serde::Deserialize;
 use serde_json;
 
 // project specific modules/crates
-use crate::clang_tools::{clang_format::FormatAdvice, clang_tidy::TidyNotification};
+use crate::clang_tools::{clang_format::FormatAdvice, clang_tidy::TidyAdvice};
 use crate::common_fs::FileObj;
 use crate::git::{get_diff, open_repo, parse_diff, parse_diff_from_buf};
 
-use super::RestApiClient;
+use super::{FeedbackInput, RestApiClient, COMMENT_MARKER};
+
+static USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0";
 
 /// A structure to work with Github REST API.
 pub struct GithubApiClient {
@@ -54,12 +57,11 @@ impl GithubApiClient {
         GithubApiClient {
             client: reqwest::blocking::Client::new(),
             event_payload: {
-                let event_payload_path = env::var("GITHUB_EVENT_PATH");
-                if event_payload_path.is_ok() {
+                if let Ok(event_payload_path) = env::var("GITHUB_EVENT_PATH") {
                     let file_buf = &mut String::new();
                     OpenOptions::new()
                         .read(true)
-                        .open(event_payload_path.unwrap())
+                        .open(event_payload_path)
                         .unwrap()
                         .read_to_string(file_buf)
                         .unwrap();
@@ -124,7 +126,6 @@ impl RestApiClient for GithubApiClient {
     }
 
     fn make_headers(&self, use_diff: Option<bool>) -> HeaderMap<HeaderValue> {
-        let gh_token = env::var("GITHUB_TOKEN");
         let mut headers = HeaderMap::new();
         let return_fmt = "application/vnd.github.".to_owned()
             + if use_diff.is_some_and(|val| val) {
@@ -133,10 +134,8 @@ impl RestApiClient for GithubApiClient {
                 "text+json"
             };
         headers.insert("Accept", return_fmt.parse().unwrap());
-        let user_agent =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0";
-        headers.insert("User-Agent", user_agent.parse().unwrap());
-        if let Ok(token) = gh_token {
+        headers.insert("User-Agent", USER_AGENT.parse().unwrap());
+        if let Ok(token) = env::var("GITHUB_TOKEN") {
             headers.insert("Authorization", token.parse().unwrap());
         }
         headers
@@ -187,16 +186,12 @@ impl RestApiClient for GithubApiClient {
         &self,
         files: &[FileObj],
         format_advice: &[FormatAdvice],
-        tidy_advice: &[Vec<TidyNotification>],
-        thread_comments: &str,
-        no_lgtm: bool,
-        step_summary: bool,
-        file_annotations: bool,
-        style: &str,
+        tidy_advice: &[TidyAdvice],
+        user_inputs: FeedbackInput,
     ) {
         let (comment, format_checks_failed, tidy_checks_failed) =
             self.make_comment(files, format_advice, tidy_advice);
-        if thread_comments != "false" {
+        if user_inputs.thread_comments.as_str() != "false" {
             // post thread comment for PR or push event
             if let Some(repo) = &self.repo {
                 let is_pr = self.event_name == "pull_request";
@@ -223,15 +218,13 @@ impl RestApiClient for GithubApiClient {
                     } else {
                         json["commit"]["comment_count"].as_u64().unwrap()
                     };
-                    let user_id: u64 = 41898282;
                     self.update_comment(
                         &format!("{}/comments", &comments_url),
                         &comment,
                         count,
-                        user_id,
-                        no_lgtm,
+                        user_inputs.no_lgtm,
                         format_checks_failed + tidy_checks_failed == 0,
-                        thread_comments == "update",
+                        user_inputs.thread_comments.as_str() == "update",
                     );
                 } else {
                     let error = request.unwrap_err();
@@ -246,10 +239,15 @@ impl RestApiClient for GithubApiClient {
                 }
             }
         }
-        if file_annotations {
-            self.post_annotations(files, format_advice, tidy_advice, style);
+        if user_inputs.file_annotations {
+            self.post_annotations(
+                files,
+                format_advice,
+                tidy_advice,
+                user_inputs.style.as_str(),
+            );
         }
-        if step_summary {
+        if user_inputs.step_summary {
             self.post_step_summary(&comment);
         }
         self.set_exit_code(
@@ -277,7 +275,7 @@ impl GithubApiClient {
         &self,
         files: &[FileObj],
         format_advice: &[FormatAdvice],
-        tidy_advice: &[Vec<TidyNotification>],
+        tidy_advice: &[TidyAdvice],
         style: &str,
     ) {
         if !format_advice.is_empty() {
@@ -322,7 +320,7 @@ impl GithubApiClient {
         // The tidy_advice vector is parallel to the files vector; meaning it serves as a file filterer.
         // lines are already filter as specified to clang-tidy CLI.
         for (index, advice) in tidy_advice.iter().enumerate() {
-            for note in advice {
+            for note in &advice.notes {
                 if note.filename == files[index].name.to_string_lossy().replace('\\', "/") {
                     println!(
                         "::{severity} file={file},line={line},title={file}:{line}:{cols} [{diag}]::{info}",
@@ -345,13 +343,12 @@ impl GithubApiClient {
         url: &String,
         comment: &String,
         count: u64,
-        user_id: u64,
         no_lgtm: bool,
         is_lgtm: bool,
         update_only: bool,
     ) {
         let comment_url =
-            self.remove_bot_comments(url, user_id, count, !update_only || (is_lgtm && no_lgtm));
+            self.remove_bot_comments(url, count, !update_only || (is_lgtm && no_lgtm));
         #[allow(clippy::nonminimal_bool)] // an inaccurate assessment
         if (is_lgtm && !no_lgtm) || !is_lgtm {
             let payload = HashMap::from([("body", comment)]);
@@ -384,13 +381,7 @@ impl GithubApiClient {
         }
     }
 
-    fn remove_bot_comments(
-        &self,
-        url: &String,
-        count: u64,
-        user_id: u64,
-        delete: bool,
-    ) -> Option<String> {
+    fn remove_bot_comments(&self, url: &String, count: u64, delete: bool) -> Option<String> {
         let mut page = 1;
         let mut comment_url = None;
         let mut total = count;
@@ -403,9 +394,7 @@ impl GithubApiClient {
                 let payload: JsonCommentsPayload = response.json().unwrap();
                 let mut comment_count = 0;
                 for comment in payload.comments {
-                    if comment.body.starts_with("<!-- cpp linter action -->")
-                        && comment.user.id == user_id
-                    {
+                    if comment.body.starts_with(COMMENT_MARKER) {
                         log::debug!(
                             "comment id {} from user {} ({})",
                             comment.id,
@@ -470,4 +459,138 @@ struct Comment {
 struct User {
     pub login: String,
     pub id: u64,
+}
+
+#[cfg(test)]
+mod test {
+    use std::{env, io::Read, path::PathBuf};
+
+    use tempfile::{tempdir, NamedTempFile};
+
+    use super::{GithubApiClient, USER_AGENT};
+    use crate::{
+        clang_tools::capture_clang_tools_output, common_fs::FileObj, rest_api::RestApiClient,
+    };
+
+    // ************************** tests for GithubApiClient::make_headers()
+
+    #[test]
+    fn get_headers_json_token() {
+        let rest_api_client = GithubApiClient::new();
+        env::set_var("GITHUB_TOKEN", "123456");
+        let headers = rest_api_client.make_headers(None);
+        assert!(headers.contains_key("User-Agent"));
+        assert_eq!(headers.get("User-Agent").unwrap(), USER_AGENT);
+        assert!(headers.contains_key("Accept"));
+        assert!(headers
+            .get("Accept")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .ends_with("text+json"));
+        assert!(headers.contains_key("Authorization"));
+        assert_eq!(headers.get("Authorization").unwrap(), "123456");
+    }
+
+    #[test]
+    fn get_headers_diff() {
+        let rest_api_client = GithubApiClient::new();
+        let headers = rest_api_client.make_headers(Some(true));
+        assert!(headers.contains_key("User-Agent"));
+        assert_eq!(headers.get("User-Agent").unwrap(), USER_AGENT);
+        assert!(headers.contains_key("Accept"));
+        assert!(headers
+            .get("Accept")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .ends_with("diff"));
+    }
+
+    // ************************** tests for GithubApiClient::set_exit_code()
+
+    #[test]
+    fn set_exit_code() {
+        let rest_api_client = GithubApiClient::new();
+        let checks_failed = 3;
+        let format_checks_failed = 2;
+        let tidy_checks_failed = 1;
+        let tmp_dir = tempdir().unwrap();
+        let mut tmp_file = NamedTempFile::new_in(tmp_dir.path()).unwrap();
+        env::set_var("GITHUB_OUTPUT", tmp_file.path());
+        assert_eq!(
+            checks_failed,
+            rest_api_client.set_exit_code(
+                checks_failed,
+                Some(format_checks_failed),
+                Some(tidy_checks_failed)
+            )
+        );
+        let mut output_file_content = String::new();
+        tmp_file.read_to_string(&mut output_file_content).unwrap();
+        assert!(output_file_content.contains(
+            format!(
+                "checks-failed={}\nformat-checks-failed={}\ntidy-checks-failed={}\n",
+                3, 2, 1
+            )
+            .as_str()
+        ));
+        println!("temp file used: {:?}", tmp_file.path());
+        drop(tmp_file);
+        drop(tmp_dir);
+    }
+
+    // ************************* tests for comment output
+
+    #[test]
+    fn check_comment_concerns() {
+        let tmp_dir = tempdir().unwrap();
+        let mut tmp_file = NamedTempFile::new_in(tmp_dir.path()).unwrap();
+        let rest_api_client = GithubApiClient::new();
+        let files = vec![FileObj::new(PathBuf::from("tests/demo/demo.cpp"))];
+        let (format_advice, tidy_advice) = capture_clang_tools_output(
+            &files,
+            env::var("CLANG-VERSION").unwrap_or("".to_string()).as_str(),
+            "readability-*",
+            "file",
+            0,
+            None,
+            None,
+        );
+        let (comment, format_checks_failed, tidy_checks_failed) =
+            rest_api_client.make_comment(&files, &format_advice, &tidy_advice);
+        assert!(format_checks_failed > 0);
+        assert!(tidy_checks_failed > 0);
+        env::set_var("GITHUB_STEP_SUMMARY", tmp_file.path());
+        rest_api_client.post_step_summary(&comment);
+        let mut output_file_content = String::new();
+        tmp_file.read_to_string(&mut output_file_content).unwrap();
+        assert_eq!(format!("\n{comment}\n\n"), output_file_content);
+    }
+
+    #[test]
+    fn check_comment_lgtm() {
+        let tmp_dir = tempdir().unwrap();
+        let mut tmp_file = NamedTempFile::new_in(tmp_dir.path()).unwrap();
+        let rest_api_client = GithubApiClient::new();
+        let files = vec![FileObj::new(PathBuf::from("tests/demo/demo.cpp"))];
+        let (format_advice, tidy_advice) = capture_clang_tools_output(
+            &files,
+            env::var("CLANG-VERSION").unwrap_or("".to_string()).as_str(),
+            "-*",
+            "",
+            0,
+            None,
+            None,
+        );
+        let (comment, format_checks_failed, tidy_checks_failed) =
+            rest_api_client.make_comment(&files, &format_advice, &tidy_advice);
+        assert_eq!(format_checks_failed, 0);
+        assert_eq!(tidy_checks_failed, 0);
+        env::set_var("GITHUB_STEP_SUMMARY", tmp_file.path());
+        rest_api_client.post_step_summary(&comment);
+        let mut output_file_content = String::new();
+        tmp_file.read_to_string(&mut output_file_content).unwrap();
+        assert_eq!(format!("\n{comment}\n\n"), output_file_content);
+    }
 }
