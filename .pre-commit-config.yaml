@@ -21,7 +21,7 @@ repos:
         exclude: '^\.yarn/releases/yarn.*js'
         args: ["--fix=lf"]
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.6
+    rev: v0.16.7
     hooks:
       # Run the python linter.
       - id: ruff-check
